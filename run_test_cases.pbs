@@ -1,0 +1,67 @@
+#!/bin/bash
+#PBS -N GoL_Project_Kancheti
+#PBS -q teachingq
+#PBS -l select=1:ncpus=60:mem=248gb:mpiprocs=60
+#PBS -l walltime=00:30:00
+#PBS -o scaling_results.txt
+#PBS -e scaling_errors.txt
+
+# 1. Setup Environment
+module load gcc/11.4.0
+module load openmpi/gcc/11.4.0/5.0.3
+
+# Set working directory
+PBS_O_WORKDIR=$HOME/HPC_Kancheti
+cd $PBS_O_WORKDIR
+
+# 2. Compile with Optimization
+mpicc -O3 -march=native -fopenmp game_of_life.c -o game_of_life.out -lm
+
+echo "=========================================================="
+echo "                 GAME OF LIFE SCALING TESTS               "
+echo "=========================================================="
+
+# --------------------------------------------------------
+# TEST 1: STRONG SCALING
+# Problem Size 10000x10000 is same for all
+# --------------------------------------------------------
+echo -e "\n[STRONG SCALING RESULTS]"
+printf "%-8s %-8s %-10s %-12s %-12s\n" "Cores" "Ranks" "Threads" "Time(s)" "MCells/s"
+echo "------------------------------------------------------------"
+
+# We set Threads to 1 and let MPI Ranks handle all cores
+export OMP_NUM_THREADS=1
+
+for CORES in 1 2 4 8 16 20 40 60; do
+    # Every core is an independent rank
+    RANKS=$CORES
+    THREADS=1
+    
+    # Run the code
+    OUTPUT=$(mpirun -np $RANKS ./game_of_life.out 10000 10000 100)
+    
+    TIME=$(echo "$OUTPUT" | grep "Simulation completed" | awk '{print $4}')
+    PERF=$(echo "$OUTPUT" | grep "Performance" | awk '{print $2}')
+    
+    printf "%-8s %-8s %-10s %-10s %-10s\n" "$CORES" "$RANKS" "$THREADS" "$TIME" "$PERF"
+done
+
+# --------------------------------------------------------
+# TEST 2: WEAK SCALING
+# Problem size grows with Ranks
+# --------------------------------------------------------
+echo -e "\n[WEAK SCALING RESULTS]"
+printf "%-8s %-18s %-10s\n" "Ranks" "Grid_Size" "Time(s)"
+echo "------------------------------------------"
+
+for RANKS in 1 2 4 8 16 20 40 60; do
+    ROWS=$((RANKS * 1000))
+    
+    export OMP_NUM_THREADS=1
+    
+    OUTPUT=$(mpirun -np $RANKS ./game_of_life.out $ROWS 10000 100)
+    TIME=$(echo "$OUTPUT" | grep "Simulation completed" | awk '{print $4}')
+    
+    printf "%-8s %-18s %-10s\n" "$RANKS" "${ROWS}x10000" "$TIME"
+done
+
